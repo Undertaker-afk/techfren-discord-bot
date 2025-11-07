@@ -4,6 +4,7 @@ tabulate
 pynacl
 firecrawl
 apify-client
+aiohttp
 pytest-asyncio
 python-dotenv
 youtube-transcript-api

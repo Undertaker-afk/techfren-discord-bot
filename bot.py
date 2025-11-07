@@ -8,7 +8,7 @@ from urllib.parse import urlparse, unquote
 
 import os
 import json
-from typing import Optional
+from typing import Optional, Any
 from datetime import datetime, timedelta, timezone
 import database
 from logging_config import logger # Import the logger from the new module
@@ -21,6 +21,8 @@ from config_validator import validate_config # Import config validator
 from command_handler import handle_bot_command, handle_sum_day_command, handle_sum_hr_command # Import command handlers
 from firecrawl_handler import scrape_url_content # Import Firecrawl handler
 from apify_handler import scrape_twitter_content, is_twitter_url # Import Apify handler
+from github_handler import is_github_url, scrape_github_repo # Import GitHub handler
+from mcp_handler import is_deepwiki_url, is_grep_app_url, scrape_deepwiki_content, scrape_grep_app_content # Import MCP handlers
 from gif_limiter import check_and_record_gif_post, check_gif_rate_limit
 
 GIF_WARNING_DELETE_DELAY = 30  # seconds before deleting warning messages
@@ -137,101 +139,111 @@ async def process_url(message_id: str, url: str):
     try:
         logger.info(f"Processing URL {url} from message {message_id}")
 
-        # Check if the URL is from YouTube
-        if await is_youtube_url(url):
-            logger.info(f"Detected YouTube URL: {url}")
+        scraped_result: Optional[Any] = None
+        markdown_content: Optional[str] = None
 
-            # Use YouTube handler to scrape content
+        # Detect URL types once to avoid duplicate checks
+        is_github_link = await is_github_url(url)
+        is_deepwiki_link = await is_deepwiki_url(url)
+        is_grep_link = await is_grep_app_url(url)
+        is_youtube_link = await is_youtube_url(url)
+        is_twitter_link = await is_twitter_url(url)
+
+        if is_github_link:
+            logger.info(f"Detected GitHub URL: {url}")
+            scraped_result = await scrape_github_repo(url)
+
+            if scraped_result:
+                logger.info(f"Successfully scraped GitHub content: {url}")
+            else:
+                logger.warning(f"Failed to scrape GitHub content, falling back to Firecrawl: {url}")
+                scraped_result = await scrape_url_content(url)
+
+        elif is_deepwiki_link:
+            logger.info(f"Detected DeepWiki MCP URL: {url}")
+            scraped_result = await scrape_deepwiki_content(url)
+
+            if not scraped_result:
+                logger.warning(f"Failed to scrape DeepWiki content: {url}")
+                return
+
+            logger.info(f"Successfully scraped DeepWiki content: {url}")
+
+        elif is_grep_link:
+            logger.info(f"Detected Grep.app MCP URL: {url}")
+            scraped_result = await scrape_grep_app_content(url)
+
+            if not scraped_result:
+                logger.warning(f"Failed to scrape Grep.app content: {url}")
+                return
+
+            logger.info(f"Successfully scraped Grep.app content: {url}")
+
+        elif is_youtube_link:
+            logger.info(f"Detected YouTube URL: {url}")
             scraped_result = await scrape_youtube_content(url)
 
-            # If YouTube scraping fails, fall back to Firecrawl
-            if not scraped_result:
+            if scraped_result:
+                logger.info(f"Successfully scraped YouTube content: {url}")
+            else:
                 logger.warning(f"Failed to scrape YouTube content, falling back to Firecrawl: {url}")
                 scraped_result = await scrape_url_content(url)
-            else:
-                logger.info(f"Successfully scraped YouTube content: {url}")
-                # Extract markdown content from the scraped result
-                markdown_content = scraped_result.get('markdown')
-        # Check if the URL is from Twitter/X.com
-        elif await is_twitter_url(url):
-            logger.info(f"Detected Twitter/X.com URL: {url}")
 
-            # Validate if the URL contains a tweet ID (status)
+        elif is_twitter_link:
+            logger.info(f"Detected Twitter/X.com URL: {url}")
             from apify_handler import extract_tweet_id
             tweet_id = extract_tweet_id(url)
+
+            import config
+
             if not tweet_id:
                 logger.warning(f"URL appears to be Twitter/X.com but doesn't contain a valid tweet ID: {url}")
 
-                # For base Twitter/X.com URLs without a tweet ID, create a simple markdown response
                 if url.lower() in ["https://x.com", "https://twitter.com", "http://x.com", "http://twitter.com"]:
-                    logger.info(f"Handling base Twitter/X.com URL with custom response: {url}")
                     scraped_result = {
                         "markdown": f"# Twitter/X.com\n\nThis is the main page of Twitter/X.com: {url}"
                     }
                 else:
-                    # For other Twitter/X.com URLs without a tweet ID, try Firecrawl
                     scraped_result = await scrape_url_content(url)
             else:
-                # Check if Apify API token is configured
                 if not hasattr(config, 'apify_api_token') or not config.apify_api_token:
                     logger.warning("Apify API token not found in config.py or is empty, falling back to Firecrawl")
                     scraped_result = await scrape_url_content(url)
                 else:
-                    # Use Apify to scrape Twitter/X.com content
                     scraped_result = await scrape_twitter_content(url)
 
-                    # If Apify scraping fails, fall back to Firecrawl
-                    if not scraped_result:
+                    if scraped_result:
+                        logger.info(f"Successfully scraped Twitter/X.com content with Apify: {url}")
+                    else:
                         logger.warning(f"Failed to scrape Twitter/X.com content with Apify, falling back to Firecrawl: {url}")
                         scraped_result = await scrape_url_content(url)
-                    else:
-                        logger.info(f"Successfully scraped Twitter/X.com content with Apify: {url}")
-                        # Extract markdown content from the scraped result
-                        markdown_content = scraped_result.get('markdown')
-        else:
-            # For non-Twitter/X.com and non-YouTube URLs, use Firecrawl
-            scraped_result = await scrape_url_content(url)
-            markdown_content = scraped_result  # Firecrawl returns markdown directly
 
-        # Check if scraping was successful
+        else:
+            scraped_result = await scrape_url_content(url)
+
         if not scraped_result:
             logger.warning(f"Failed to scrape content from URL: {url}")
             return
 
-        # Handle different types of scraped results
-        if await is_youtube_url(url):
-            # YouTube handler returns a dict with 'markdown' key
-            if isinstance(scraped_result, dict) and 'markdown' in scraped_result:
-                markdown_content = scraped_result.get("markdown", "")
-            else:
-                logger.warning(f"Invalid scraped result structure for YouTube URL {url}: expected dict with 'markdown' key")
-                return
-        elif await is_twitter_url(url) and hasattr(config, 'apify_api_token') and config.apify_api_token:
-            # Twitter/X.com URLs scraped with Apify return a dict with 'markdown' key
-            if isinstance(scraped_result, dict) and 'markdown' in scraped_result:
-                markdown_content = scraped_result.get("markdown", "")
-            else:
-                logger.warning(f"Invalid scraped result structure for Twitter URL {url}: expected dict with 'markdown' key")
-                return
+        if isinstance(scraped_result, dict) and 'markdown' in scraped_result:
+            markdown_content = scraped_result.get('markdown', '')
+        elif isinstance(scraped_result, str):
+            markdown_content = scraped_result
         else:
-            # Firecrawl returns markdown directly as a string
-            if isinstance(scraped_result, str):
-                markdown_content = scraped_result
-            else:
-                logger.warning(f"Invalid scraped result for URL {url}: expected string, got {type(scraped_result)}")
-                return
+            logger.warning(f"Invalid scraped result type for URL {url}: {type(scraped_result)}")
+            return
 
-        # Step 2: Summarize the scraped content
+        if not markdown_content:
+            logger.warning(f"Scraped content empty for URL: {url}")
+            return
+
         summary_text = await summarize_scraped_content(markdown_content, url)
         if not summary_text:
             logger.warning(f"Failed to summarize content from URL: {url}")
             return
 
-        # Step 3: Store the summary (no separate key points since it's now plain text)
-        # Store empty JSON array for key_points to maintain database compatibility
         key_points_json = json.dumps([])
 
-        # Step 4: Update the message in the database with the scraped data
         success = await database.update_message_with_scraped_data(
             message_id,
             url,
@@ -391,6 +403,142 @@ async def handle_x_post_summary(message: discord.Message) -> bool:
 
     except Exception as e:
         logger.error(f"Error in handle_x_post_summary: {str(e)}", exc_info=True)
+        return False
+
+async def handle_link_summary(message: discord.Message) -> bool:
+    """
+    Automatically detect GitHub, DeepWiki, or Grep.app MCP links in messages,
+    scrape and summarize them, and reply to the message with the summary in a thread.
+
+    Args:
+        message: The Discord message to check for supported links
+
+    Returns:
+        bool: True if a supported link was found and processed, False otherwise
+    """
+    try:
+        if message.author.bot:
+            return False
+
+        url_pattern = r'https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+(?:/[^\s]*)?(?:\?[^\s]*)?'
+        urls = re.findall(url_pattern, message.content)
+
+        if not urls:
+            return False
+
+        supported_urls = []
+        for url in urls:
+            if await is_github_url(url):
+                supported_urls.append(('github', url))
+            elif await is_deepwiki_url(url):
+                supported_urls.append(('deepwiki', url))
+            elif await is_grep_app_url(url):
+                supported_urls.append(('grep', url))
+
+        if not supported_urls:
+            return False
+
+        logger.info(f"Found {len(supported_urls)} supported URL(s) in message {message.id}")
+
+        for link_type, url in supported_urls:
+            try:
+                scraped_result = None
+                thread_name_prefix = "Summary"
+
+                if link_type == 'github':
+                    logger.info(f"Starting to scrape GitHub repo: {url}")
+                    scraped_result = await scrape_github_repo(url)
+                    thread_name_prefix = "GitHub Repo"
+                    summary_header = "🔧 **GitHub Repository Summary:**\n\n"
+                elif link_type == 'deepwiki':
+                    logger.info(f"Starting to scrape DeepWiki MCP: {url}")
+                    scraped_result = await scrape_deepwiki_content(url)
+                    thread_name_prefix = "DeepWiki MCP"
+                    summary_header = "📚 **DeepWiki MCP Summary:**\n\n"
+                elif link_type == 'grep':
+                    logger.info(f"Starting to scrape Grep.app MCP: {url}")
+                    scraped_result = await scrape_grep_app_content(url)
+                    thread_name_prefix = "Grep.app MCP"
+                    summary_header = "🔍 **Grep.app MCP Summary:**\n\n"
+
+                if not scraped_result or 'markdown' not in scraped_result:
+                    logger.warning(f"Failed to scrape {link_type} link: {url}")
+                    continue
+
+                markdown_content = scraped_result.get('markdown', '')
+
+                logger.info(f"Summarizing scraped content for: {url}")
+                summary_text = await summarize_scraped_content(markdown_content, url)
+
+                if not summary_text:
+                    logger.warning(f"Failed to summarize {link_type} link: {url}")
+                    continue
+
+                response = f"{summary_header}{summary_text}"
+
+                if len(response) > 3900:
+                    response = response[:3900] + "..."
+
+                thread = None
+                try:
+                    url_short = url.split('//')[-1][:40]
+                    thread_name = f"{thread_name_prefix}: {url_short}"
+                    thread = await message.create_thread(name=thread_name, auto_archive_duration=1440)
+                    await thread.join()
+                    logger.info(f"Created and joined thread {thread.id} for message {message.id}")
+                except discord.errors.HTTPException as e:
+                    if e.code == 160004:
+                        logger.info(f"Thread already exists for message {message.id}, fetching it")
+                        if isinstance(message.channel, discord.TextChannel):
+                            for active_thread in message.channel.threads:
+                                if active_thread.id == message.id or (hasattr(active_thread, 'starter_message') and active_thread.starter_message and active_thread.starter_message.id == message.id):
+                                    thread = active_thread
+                                    break
+
+                            if not thread:
+                                async for archived_thread in message.channel.archived_threads(limit=100):
+                                    if archived_thread.id == message.id or (hasattr(archived_thread, 'starter_message') and archived_thread.starter_message and archived_thread.starter_message.id == message.id):
+                                        thread = archived_thread
+                                        break
+                    else:
+                        raise
+
+                if not thread:
+                    logger.error(f"Could not create or find thread for message {message.id}")
+                    continue
+
+                try:
+                    if not thread.me:
+                        await thread.join()
+                        logger.info(f"Joined existing thread {thread.id}")
+                except Exception as e:
+                    logger.warning(f"Could not join thread {thread.id}: {e}")
+
+                summary_msg = await thread.send(response)
+                logger.info(f"Posted summary ({len(response)} chars) to thread {thread.id} (thread name: {thread.name})")
+
+                key_points_json = json.dumps([])
+                await database.update_message_with_scraped_data(
+                    str(message.id),
+                    url,
+                    summary_text,
+                    key_points_json
+                )
+
+                logger.info(f"Successfully processed {link_type} link: {url}")
+
+            except Exception as e:
+                logger.error(f"Error processing {link_type} URL {url}: {str(e)}", exc_info=True)
+                try:
+                    if 'thread' in locals() and thread:
+                        await thread.send(f"❌ Error processing link: {str(e)[:100]}")
+                except:
+                    pass
+
+        return len(supported_urls) > 0
+
+    except Exception as e:
+        logger.error(f"Error in handle_link_summary: {str(e)}", exc_info=True)
         return False
 
 async def handle_links_dump_channel(message: discord.Message) -> bool:
@@ -940,6 +1088,14 @@ async def on_message(message):
             logger.debug(f"X post summary handled for message {message.id}")
     except Exception as e:
         logger.error(f"Error in X post summary handler: {str(e)}", exc_info=True)
+
+    # Handle GitHub/DeepWiki/Grep links automatically
+    try:
+        link_summary_handled = await handle_link_summary(message)
+        if link_summary_handled:
+            logger.debug(f"Link summary handled for message {message.id}")
+    except Exception as e:
+        logger.error(f"Error in link summary handler: {str(e)}", exc_info=True)
 
     # Check if this is a command
     bot_mention = f'<@{bot.user.id}>'
