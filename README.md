@@ -13,6 +13,8 @@ A simple Discord bot built with discord.py.
 - Automatically splits long messages into multiple parts to handle Discord's 2000 character limit
 - Processes URLs shared in messages:
   - Uses Apify to scrape Twitter/X.com URLs, extracting tweet content, video URLs, and replies
+  - Uses GitHub API to analyze repositories (metadata, README, language breakdown) and summarize projects in threads
+  - Uses Firecrawl for DeepWiki MCP and Grep.app MCP project pages with automated summarization
   - Uses Firecrawl for all other URLs
   - Summarizes content and stores it in the database
 - Rate limiting to prevent abuse (10 seconds between requests, max 6 requests per minute)
@@ -67,11 +69,14 @@ A simple Discord bot built with discord.py.
    ```bash
    LLM_MODEL=sonar  # Default model to use (Perplexity's web search model)
    APIFY_API_TOKEN=your_apify_token  # For Twitter/X.com link processing
+   GITHUB_API_TOKEN=your_github_token  # For GitHub repository analysis (higher rate limits)
+   REPO_README_MAX_LENGTH=5000  # Maximum README characters to process
    RATE_LIMIT_SECONDS=10  # Time between allowed requests per user
    MAX_REQUESTS_PER_MINUTE=6  # Maximum requests per user per minute
    SUMMARY_HOUR=0  # Hour of the day to run summarization (UTC, 0-23)
    SUMMARY_MINUTE=0  # Minute of the hour to run summarization (0-59)
    REPORTS_CHANNEL_ID=channel_id  # Optional: Channel to post daily summaries
+   LINKS_DUMP_CHANNEL_ID=channel_id  # Optional: Channel for links-only enforcement
    PERPLEXITY_BASE_URL=https://api.perplexity.ai  # Base URL for Perplexity API
    HTTP_REFERER=https://techfren.net  # HTTP Referer header for API requests
    X_TITLE=TechFren Discord Bot  # X-Title header for API requests
@@ -79,6 +84,7 @@ A simple Discord bot built with discord.py.
    - You can get a Perplexity API key by signing up at [Perplexity.ai](https://perplexity.ai/)
    - You can get a Firecrawl API key by signing up at [Firecrawl.dev](https://firecrawl.dev)
    - You can get an Apify API token by signing up at [Apify.com](https://apify.com)
+   - You can get a GitHub API token from [GitHub Settings](https://github.com/settings/tokens)
 6. Run the bot:
    ```
    python bot.py

@@ -1,3 +1,43 @@
+# Summary of Changes: GitHub & MCP Link Integration
+
+## Overview
+Implemented automated GitHub repository analysis and MCP (DeepWiki & Grep.app) link support. When supported links are posted, the bot now scrapes metadata, generates AI-powered summaries, posts them in dedicated threads, and stores them in the database.
+
+## Key Enhancements
+
+### 1. **GitHub Repository Analysis**
+- Added `github_handler.py` to interact with the GitHub REST API using `aiohttp`
+- Collects repository metadata (stars, forks, license, topics, language breakdown)
+- Fetches and truncates README content (respecting configurable limit)
+- Formats rich markdown for summarization and storage
+
+### 2. **MCP (DeepWiki & Grep.app) Support**
+- Added `mcp_handler.py` to detect and scrape MCP project pages via Firecrawl
+- Normalizes scraped markdown with contextual headers for DeepWiki and Grep.app
+- Shares integration details in new documentation (DeepWiki specs & Grep.app directory)
+
+### 3. **Discord Bot Integration (`bot.py`)**
+- Extended `process_url()` to detect GitHub, DeepWiki, and Grep.app links with fallbacks
+- Added `handle_link_summary()` to auto-create threads and post formatted summaries
+- Invoked new handler from `on_message` alongside existing X/Twitter logic
+
+### 4. **Configuration & Dependencies**
+- Updated `.env.sample` and `config.py` with optional `GITHUB_API_TOKEN` and `REPO_README_MAX_LENGTH`
+- Added `aiohttp` to `requirements.txt`
+- Documented setup in new `GITHUB_MCP_INTEGRATION.md` and task tracker `TODO_GITHUB_MCP.md`
+
+## Documentation
+- `README.md` now highlights GitHub/MCP capabilities and environment variables
+- `GITHUB_MCP_INTEGRATION.md` explains workflow, configuration, and troubleshooting
+- `TODO_GITHUB_MCP.md` captures future enhancement ideas (dependency parsing, caching, etc.)
+
+## Impact
+- Links in the links-dump channel (and elsewhere) receive immediate context-rich summaries
+- Maintains existing X/Twitter features while expanding coverage to GitHub/MCP ecosystems
+- Keeps database schema intact by reusing existing scraped content fields
+
+---
+
 # Summary of Changes: Removed Apify Dependency for X/Twitter Scraping
 
 ## Overview
