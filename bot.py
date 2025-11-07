@@ -129,12 +129,13 @@ client = bot
 
 async def process_url(message_id: str, url: str):
     """
-    Process a URL found in a message by scraping its content, summarizing it,
-    and updating the message in the database with the scraped data.
-
-    Args:
-        message_id (str): The ID of the message containing the URL
-        url (str): The URL to process
+    Scrape the content at a URL, generate a summary and key points, and attach them to the stored message record.
+    
+    Detects known URL types (GitHub, DeepWiki, Grep.app, YouTube, Twitter/X) and uses specialized scrapers when available, falling back to a generic scraper as needed; the scraped content is normalized to markdown, summarized, and written to the database for the given message ID. Logs progress and exits silently on non-recoverable failures (e.g., empty or invalid scraped content).
+    
+    Parameters:
+        message_id (str): ID of the message to associate the scraped data with.
+        url (str): The URL to scrape and summarize.
     """
     try:
         logger.info(f"Processing URL {url} from message {message_id}")
@@ -261,14 +262,12 @@ async def process_url(message_id: str, url: str):
 
 async def handle_x_post_summary(message: discord.Message) -> bool:
     """
-    Automatically detect X/Twitter links in messages, scrape and summarize them,
-    and reply to the message with the summary.
-
-    Args:
-        message: The Discord message to check for X/Twitter links
-
+    Detects X (Twitter) URLs in a Discord message, scrapes and summarizes each, and posts the summary into a thread for that message.
+    
+    If a supported X URL is found and scraping is available, the function creates or joins a thread for the message, posts the generated summary there, and stores the scraped data and summary in the database. Uses configured scraping backends when available; skips processing if scraping is not configured or fails for a URL.
+    
     Returns:
-        bool: True if an X post was found and processed, False otherwise
+        True if at least one X/Twitter URL was found and successfully processed, False otherwise.
     """
     try:
         # Skip bot messages
@@ -407,14 +406,13 @@ async def handle_x_post_summary(message: discord.Message) -> bool:
 
 async def handle_link_summary(message: discord.Message) -> bool:
     """
-    Automatically detect GitHub, DeepWiki, or Grep.app MCP links in messages,
-    scrape and summarize them, and reply to the message with the summary in a thread.
-
-    Args:
-        message: The Discord message to check for supported links
-
+    Detects GitHub, DeepWiki, or Grep.app MCP links in a Discord message, scrapes and summarizes each found link, posts the summary to a thread, and stores scraped data in the database.
+    
+    Parameters:
+        message (discord.Message): The Discord message to inspect for supported links.
+    
     Returns:
-        bool: True if a supported link was found and processed, False otherwise
+        bool: `True` if at least one supported link was found and processing was attempted, `False` otherwise.
     """
     try:
         if message.author.bot:
@@ -543,14 +541,15 @@ async def handle_link_summary(message: discord.Message) -> bool:
 
 async def handle_links_dump_channel(message: discord.Message) -> bool:
     """
-    Handle messages in the links dump channel.
-    Delete non-link messages with a warning that auto-deletes after 1 minute.
-
-    Args:
-        message: The Discord message to check
-
+    Enforces the links-only policy for the configured links dump channel by deleting non-link messages and notifying the author.
+    
+    Checks whether the given message is in the configured links dump channel (or a thread from it), allows messages that contain URLs, are forwarded from other channels, or are sent by bots, and otherwise sends a warning to the author and schedules deletion of both the original message and the warning after 60 seconds.
+    
+    Parameters:
+        message (discord.Message): The Discord message to inspect.
+    
     Returns:
-        bool: True if message was handled (deleted), False if message should remain
+        bool: `True` if the message was handled (deleted or scheduled for deletion), `False` otherwise.
     """
     try:
         # Import config here to avoid circular imports
@@ -713,6 +712,11 @@ async def on_error(event, *args, **kwargs):
 @bot.event
 async def on_message(message):
     # Ignore messages from the bot itself
+    """
+    Handle an incoming Discord message: enforce GIF rate limits, record the message, run automatic summarizers, and dispatch commands.
+    
+    This is the central message pipeline executed for every non-bot message. It enforces GIF posting rules (including handling forwards/replies and warning messages), stores message metadata in the database (with minimal command detection), invokes automatic summarization handlers (X/Twitter and supported link types), and routes mention- or slash-style summary commands to their handlers. Side effects include message deletion, sending temporary warning messages, database writes, and creating or replying in threads when summaries are posted.
+    """
     if message.author == bot.user:
         return
 

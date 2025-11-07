@@ -14,13 +14,10 @@ logger = logging.getLogger('discord_bot.mcp_handler')
 
 async def is_deepwiki_url(url: str) -> bool:
     """
-    Check if a URL is from mcp.deepwiki.com.
+    Determine whether the given URL belongs to mcp.deepwiki.com.
     
-    Args:
-        url (str): The URL to check
-        
     Returns:
-        bool: True if the URL is from mcp.deepwiki.com, False otherwise
+        `true` if the URL is from mcp.deepwiki.com, `false` otherwise.
     """
     pattern = r'(?:^https?://)?(?:www\.)?mcp\.deepwiki\.com'
     return bool(re.search(pattern, url))
@@ -40,13 +37,13 @@ async def is_grep_app_url(url: str) -> bool:
 
 async def scrape_deepwiki_content(url: str) -> Optional[Dict[str, Any]]:
     """
-    Scrape content from a DeepWiki MCP URL using Firecrawl.
+    Fetch enhanced markdown scraped from a DeepWiki MCP URL.
     
-    Args:
-        url (str): The DeepWiki URL to scrape
-        
+    Parameters:
+        url (str): The DeepWiki MCP URL to scrape.
+    
     Returns:
-        Optional[Dict[str, Any]]: Dictionary with 'markdown' key containing scraped content, or None if scraping failed
+        Optional[Dict[str, Any]]: A dict with a single key `'markdown'` containing the scraped content prefixed with a header and the source URL, or `None` if scraping failed.
     """
     try:
         logger.info(f"Scraping DeepWiki MCP URL: {url}")
@@ -71,13 +68,15 @@ async def scrape_deepwiki_content(url: str) -> Optional[Dict[str, Any]]:
 
 async def scrape_grep_app_content(url: str) -> Optional[Dict[str, Any]]:
     """
-    Scrape content from a Grep.app MCP URL using Firecrawl.
+    Fetch and return enhanced markdown scraped from a Grep.app MCP URL.
     
-    Args:
-        url (str): The Grep.app URL to scrape
-        
+    Prefixes the retrieved markdown with a standard header and the source URL before returning it.
+    
+    Parameters:
+        url (str): Grep.app MCP page URL to scrape.
+    
     Returns:
-        Optional[Dict[str, Any]]: Dictionary with 'markdown' key containing scraped content, or None if scraping failed
+        Optional[Dict[str, Any]]: A dictionary with a single key `'markdown'` containing the enhanced markdown, or `None` if scraping failed.
     """
     try:
         logger.info(f"Scraping Grep.app MCP URL: {url}")
