@@ -18,6 +18,14 @@ GITHUB_API_BASE_URL = "https://api.github.com"
 REPO_README_MAX_LENGTH = 5000
 
 def _get_github_token() -> Optional[str]:
+    """
+    Retrieve a GitHub API token from the environment or a local config module.
+    
+    Checks the `GITHUB_API_TOKEN` environment variable first; if not present, attempts to import a local `config` module and return its `github_api_token` attribute. Returns `None` if no token is found or if the config access fails.
+    
+    Returns:
+        Optional[str]: The GitHub API token, or `None` if unavailable.
+    """
     token = os.getenv('GITHUB_API_TOKEN')
     if token:
         return token
@@ -28,6 +36,17 @@ def _get_github_token() -> Optional[str]:
         return None
 
 def _get_readme_limit(default: int = REPO_README_MAX_LENGTH) -> int:
+    """
+    Determine the maximum README length to use when fetching and truncating README content.
+    
+    Checks the REPO_README_MAX_LENGTH environment variable and returns its integer value if valid; if the environment variable is present but not an integer, logs a warning and falls back. If the environment variable is not set, attempts to read `repo_readme_max_length` from a local `config` module. On any error or missing configuration, returns the provided `default`.
+    
+    Parameters:
+        default (int): Fallback limit to use when no valid environment or config value is available.
+    
+    Returns:
+        int: The determined README length limit.
+    """
     env_value = os.getenv('REPO_README_MAX_LENGTH')
     if env_value:
         try:
@@ -42,26 +61,22 @@ def _get_readme_limit(default: int = REPO_README_MAX_LENGTH) -> int:
 
 async def is_github_url(url: str) -> bool:
     """
-    Check if a URL is from GitHub.
+    Determine whether a URL points to a GitHub repository (contains an owner/repository path).
     
-    Args:
-        url (str): The URL to check
-        
     Returns:
-        bool: True if the URL is from GitHub, False otherwise
+        True if the URL contains a GitHub owner/repo path, False otherwise.
     """
     pattern = r'(?:^https?://(?:www\.)?github\.com)/([^/]+)/([^/\s?#]+)'
     return bool(re.search(pattern, url))
 
 def extract_repo_info(url: str) -> Optional[Dict[str, str]]:
     """
-    Extract repository owner and name from a GitHub URL.
+    Extract the owner and repository name from a GitHub URL.
     
-    Args:
-        url (str): The GitHub URL
-        
+    Supports URLs with optional scheme (http/https), optional "www.", and an optional trailing ".git" on the repository name.
+    
     Returns:
-        Optional[Dict[str, str]]: Dictionary with 'owner' and 'repo' keys, or None if extraction failed
+        dict: A mapping with keys 'owner' and 'repo' when extraction succeeds, `None` otherwise.
     """
     try:
         pattern = r'(?:https?://)?(?:www\.)?github\.com/([^/]+)/([^/\s?#]+)'
@@ -86,14 +101,14 @@ def extract_repo_info(url: str) -> Optional[Dict[str, str]]:
 
 async def fetch_repo_metadata(owner: str, repo: str) -> Optional[Dict[str, Any]]:
     """
-    Fetch repository metadata from GitHub API.
+    Fetch repository metadata for a GitHub repository.
     
-    Args:
-        owner (str): Repository owner
-        repo (str): Repository name
-        
+    Parameters:
+        owner (str): Repository owner name.
+        repo (str): Repository name.
+    
     Returns:
-        Optional[Dict[str, Any]]: Repository metadata or None if fetch failed
+        Repository metadata as a dictionary if successful, `None` if the repository was not found, access is forbidden, or an error occurred while fetching.
     """
     try:
         logger.info(f"Fetching metadata for GitHub repo: {owner}/{repo}")
@@ -132,14 +147,16 @@ async def fetch_repo_metadata(owner: str, repo: str) -> Optional[Dict[str, Any]]
 
 async def fetch_repo_readme(owner: str, repo: str) -> Optional[str]:
     """
-    Fetch repository README content from GitHub API.
+    Retrieve and decode a repository's README from the GitHub API.
     
-    Args:
-        owner (str): Repository owner
-        repo (str): Repository name
-        
+    Fetches the README file for the given repository, decodes its base64 content to UTF-8, and enforces a configurable maximum length (truncating and appending "\n\n... (README truncated for brevity)" if exceeded). Returns `None` when no README is found, the content is empty, or an error occurs during fetching or decoding.
+    
+    Parameters:
+        owner (str): Repository owner name.
+        repo (str): Repository name.
+    
     Returns:
-        Optional[str]: README content (decoded) or None if fetch failed
+        Optional[str]: Decoded README text (possibly truncated), or `None` if unavailable or on error.
     """
     try:
         logger.info(f"Fetching README for GitHub repo: {owner}/{repo}")
@@ -192,14 +209,14 @@ async def fetch_repo_readme(owner: str, repo: str) -> Optional[str]:
 
 async def fetch_repo_languages(owner: str, repo: str) -> Optional[Dict[str, int]]:
     """
-    Fetch repository language breakdown from GitHub API.
+    Fetch the byte-count breakdown of languages used in a GitHub repository.
     
-    Args:
-        owner (str): Repository owner
-        repo (str): Repository name
-        
+    Parameters:
+        owner (str): GitHub repository owner (username or organization).
+        repo (str): Repository name.
+    
     Returns:
-        Optional[Dict[str, int]]: Language breakdown (language: bytes) or None if fetch failed
+        Optional[Dict[str, int]]: Mapping of language names to byte counts, or `None` if the request failed or an error occurred.
     """
     try:
         logger.info(f"Fetching languages for GitHub repo: {owner}/{repo}")
@@ -231,13 +248,13 @@ async def fetch_repo_languages(owner: str, repo: str) -> Optional[Dict[str, int]
 
 def format_language_breakdown(languages: Dict[str, int]) -> str:
     """
-    Format language breakdown as a readable string with percentages.
+    Create a human-readable top-5 language breakdown showing each language's percentage of the repository.
     
-    Args:
-        languages (Dict[str, int]): Language breakdown (language: bytes)
-        
+    Parameters:
+        languages (Dict[str, int]): Mapping of language names to byte counts.
+    
     Returns:
-        str: Formatted language breakdown
+        str: "No language data available" if there are no languages or total bytes is zero; otherwise a newline-separated list of up to five lines formatted as "  - {language}: {percentage:.1f}%".
     """
     if not languages:
         return "No language data available"
@@ -257,15 +274,15 @@ def format_language_breakdown(languages: Dict[str, int]) -> str:
 
 def format_as_markdown(repo_data: Dict[str, Any], readme_content: Optional[str], languages: Optional[Dict[str, int]]) -> str:
     """
-    Format GitHub repository data as markdown.
+    Compose a Markdown document representing GitHub repository information.
     
-    Args:
-        repo_data (Dict[str, Any]): Repository metadata from GitHub API
-        readme_content (Optional[str]): README content
-        languages (Optional[Dict[str, int]]): Language breakdown
-        
+    Parameters:
+        repo_data (Dict[str, Any]): Repository metadata as returned by the GitHub API (e.g., full_name, description, html_url, stargazers_count, forks_count, watchers_count, open_issues_count, topics, license, homepage, created_at, updated_at).
+        readme_content (Optional[str]): Decoded README content to include, or None to omit.
+        languages (Optional[Dict[str, int]]): Mapping of language names to byte counts used to produce a language breakdown, or None to omit.
+    
     Returns:
-        str: Formatted markdown content
+        str: A Markdown-formatted string containing repository header, description, URL, statistics, optional language breakdown, topics, license, homepage, timestamps, and README section (if provided).
     """
     try:
         markdown = f"# GitHub Repository: {repo_data.get('full_name', 'Unknown')}\n\n"
@@ -313,13 +330,16 @@ def format_as_markdown(repo_data: Dict[str, Any], readme_content: Optional[str],
 
 async def scrape_github_repo(url: str) -> Optional[Dict[str, Any]]:
     """
-    Scrape a GitHub repository by fetching metadata, README, and language breakdown.
+    Scrapes a GitHub repository URL and returns formatted markdown plus the raw fetched data.
     
-    Args:
-        url (str): The GitHub repository URL
-        
     Returns:
-        Optional[Dict[str, Any]]: Dictionary with 'markdown' and 'raw_data' keys, or None if scraping failed
+        Optional[Dict[str, Any]]: A dictionary with:
+            - 'markdown': a formatted markdown string representing the repository,
+            - 'raw_data': a dict with:
+                - 'metadata': repository metadata dict,
+                - 'readme': README content string or None,
+                - 'languages': mapping of language names to byte counts or None.
+        Returns `None` if scraping fails.
     """
     try:
         logger.info(f"Scraping GitHub repository: {url}")
